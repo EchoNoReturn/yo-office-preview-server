@@ -30,14 +30,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Impress: .ppt, .pptx, .odp → PDF
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        libreoffice \
-        libreoffice-writer \
-        libreoffice-calc \
-        libreoffice-impress \
-        fonts-liberation \
-        fonts-dejavu-core \
-        fonts-noto-cjk \
-        && rm -rf /var/lib/apt/lists/*
+    libreoffice \
+    libreoffice-writer \
+    libreoffice-calc \
+    libreoffice-impress \
+    fonts-liberation \
+    fonts-dejavu-core \
+    fonts-noto-cjk \
+    fonts-noto \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV LIBREOFFICE_PATH=libreoffice
 ENV TMP_DIR=tmp
