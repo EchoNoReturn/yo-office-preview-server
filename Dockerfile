@@ -1,41 +1,46 @@
 # ----------- Stage 1: Build Rust binary -----------
-FROM rust:1.91 as builder
+FROM rust:1.91 AS builder
 
 WORKDIR /app
-
-# 复制 Cargo.toml 和 Cargo.lock，先构建依赖
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir src
-RUN echo "fn main() {}" > src/main.rs
-RUN cargo build --release
-# 这一步只是为了缓存依赖
-
-# 复制源码
-COPY . .
+COPY ./src ./src
+COPY ./static ./static
+COPY Cargo.toml ./Cargo.toml
+COPY Cargo.lock ./Cargo.lock
 RUN cargo build --release
 
 # ----------- Stage 2: Runtime -----------
 FROM ubuntu:24.04
 
-# 安装 LibreOffice + 字体
-RUN apt-get update && apt-get install -y \
-    libreoffice \
-    libreoffice-writer \
-    libreoffice-calc \
-    libreoffice-impress \
-    fonts-noto \
-    fonts-noto-cjk \
-    fonts-dejavu \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 # 复制 Rust 可执行文件
 COPY --from=builder /app/target/release/yo-office-preview /app/yo_office_preview
+COPY --from=builder /app/static /app/static
 RUN chmod +x /app/yo_office_preview
 
-ENV LIBREOFFICE_BIN=/usr/bin/libreoffice
-ENV TMP_DIR=/tmp/office-preview
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 安装 LibreOffice + 字体
+# libreoffice-writer \      # 支持 DOC/DOCX
+# libreoffice-calc \        # 支持 XLS/XLSX
+# libreoffice-impress \     # 支持 PPT/PPTX
+# fonts-noto-cjk \          # 中日韩字体（可选，但推荐）
+# Writer: .doc, .docx, .odt, .rtf, .txt → PDF
+# Calc: .xls, .xlsx, .ods → PDF
+# Impress: .ppt, .pptx, .odp → PDF
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libreoffice \
+        libreoffice-writer \
+        libreoffice-calc \
+        libreoffice-impress \
+        fonts-liberation \
+        fonts-dejavu-core \
+        fonts-noto-cjk \
+        && rm -rf /var/lib/apt/lists/*
+
+ENV LIBREOFFICE_PATH=libreoffice
+ENV TMP_DIR=tmp
 ENV PORT=3000
 
 # 暴露端口
