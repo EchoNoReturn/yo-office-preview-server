@@ -1,5 +1,5 @@
 # ----------- Stage 1: Build Rust binary -----------
-FROM rust:1.91 AS builder
+FROM rust:1.93 AS builder
 
 WORKDIR /app
 COPY ./src ./src
@@ -42,6 +42,7 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 ENV LIBREOFFICE_PATH=libreoffice
+ENV BASE64_PREVIEW_URL=true
 ENV TMP_DIR=tmp
 ENV PORT=3000
 

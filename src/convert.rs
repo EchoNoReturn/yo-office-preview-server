@@ -24,15 +24,12 @@ pub async fn convert_file_to_pdf(input_url: &str) -> Result<String, Box<dyn std:
 
     if status.success() {
         println!("转换成功，输出目录: {}", output_dir);
-        let tmp_output_path = format!(
-            "{}/{}.pdf",
-            output_dir,
-            std::path::Path::new(input_file.as_str())
-                .file_stem()
-                .unwrap()
-                .to_str()
-                .unwrap()
-        );
+        let pre_file_name = std::path::Path::new(input_file.as_str())
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let tmp_output_path = format!("{}/{}.pdf", output_dir, pre_file_name,);
         println!("输出文件路径: {}", tmp_output_path);
         // 删除缓存文件
         if crate::url_helper::is_remote_url(&input_url) {
@@ -54,7 +51,7 @@ async fn cache_file(file_url: &str) -> Result<String, Box<dyn std::error::Error>
         println!("Downloading remote file: {}", file_url);
         let saved = download_file_to_tmp(file_url).await?;
         // 验证文件的 mime 类型为合法的 office 文件类型
-        if !vailedate_file(&saved) {
+        if !validate_file(&saved) {
             let _ = std::fs::remove_file(&saved);
             return Err("不支持的文件类型".into());
         }
@@ -65,7 +62,7 @@ async fn cache_file(file_url: &str) -> Result<String, Box<dyn std::error::Error>
     Ok(path)
 }
 
-fn vailedate_file(file_path: &str) -> bool {
+fn validate_file(file_path: &str) -> bool {
     // Placeholder implementation for validating file
     let is_office = is_office_file(file_path);
     println!("Validating file: {} ==> {}", file_path, is_office);

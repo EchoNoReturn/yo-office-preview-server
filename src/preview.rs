@@ -1,4 +1,5 @@
-use std::{error::Error, fs};
+use std::{env, error::Error, fs};
+use base64::{engine::general_purpose, Engine as _};
 
 use crate::cache::{get_cache, set_cache};
 use axum::{
@@ -11,10 +12,13 @@ pub async fn preview(
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let url = match params.get("url") {
-        Some(u) => u,
+        Some(u) => match decode_base64_url(u) {
+            Ok(decoded) => decoded,
+            Err(e) => return Err((StatusCode::BAD_REQUEST, format!("Invalid base64 url: {}", e))),
+        },
         None => return Err((StatusCode::BAD_REQUEST, "Missing url parameter".to_string())),
     };
-    match handle_preview(url).await {
+    match handle_preview(&url).await {
         Ok(bytes) => {
             let mut headers = HeaderMap::new();
             headers.insert("Content-Type", "application/pdf".parse().unwrap());
@@ -24,6 +28,20 @@ pub async fn preview(
             eprintln!("preview error: {:?}", err);
             Err((StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
         }
+    }
+}
+
+fn decode_base64_url(s: &String) -> Result<String, Box<dyn Error>> {
+    let enabled = env::var("BASE64_PREVIEW_URL")
+        .unwrap_or_else(|_| "false".to_string())
+        .to_lowercase();
+    match enabled.as_str() {
+        "true" | "1" | "yes" => {
+            let decoded_bytes = general_purpose::STANDARD.decode(s)?;
+            let decoded_str = String::from_utf8(decoded_bytes)?;
+            Ok(decoded_str)
+        }
+        _ => Ok(s.clone()),
     }
 }
 
