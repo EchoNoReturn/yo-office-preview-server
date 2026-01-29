@@ -43,7 +43,7 @@ RUN apt-get update && \
 
 ENV LIBREOFFICE_PATH=libreoffice
 ENV BASE64_PREVIEW_URL=true
-ENV TMP_DIR=tmp
+ENV TMP_DIR=tmp_files
 ENV PORT=3000
 
 # 暴露端口

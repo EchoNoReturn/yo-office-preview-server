@@ -17,6 +17,7 @@ async fn main() {
     let addr = format!("0.0.0.0:{}", port);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    print!("All cache files will be stored in tmp dir: {}\n", crate::convert::get_output_dir());
     println!("listening on http://{}", listener.local_addr().unwrap());
     let _ = serve(listener, app).await;
 }

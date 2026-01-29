@@ -16,14 +16,28 @@ impl std::fmt::Display for UnsupportedFileTypeError {
 
 impl std::error::Error for UnsupportedFileTypeError {}
 
+pub fn get_output_dir() -> String {
+    let output_dir =
+        env::var("OUTPUT_DIR").unwrap_or(env::temp_dir().to_str().unwrap().to_string());
+    let output_path = std::path::Path::new(&output_dir);
+    let new_path = output_path.join("cache");
+    // 确保目录存在
+    let output_dir = new_path.as_os_str().to_str().unwrap();
+    if new_path.exists() {
+        output_dir.to_string()
+    } else {
+        std::fs::create_dir_all(&output_dir).unwrap();
+        output_dir.to_string()
+    }
+}
+
 /**
  * 转换文件
  * 转换后的文件会保存在临时目录，并在一个小时后删除。
  */
 pub async fn convert_file_to_pdf(input_url: &str) -> Result<String, Box<dyn std::error::Error>> {
     let libreoffice = env::var("LIBREOFFICE_PATH").expect("请在 .env 中配置 LIBREOFFICE_PATH");
-    let output_dir =
-        env::var("OUTPUT_DIR").unwrap_or(env::temp_dir().to_str().unwrap().to_string());
+    let output_dir = get_output_dir();
     let input_file = match cache_file(input_url).await {
         Ok(path) => path,
         Err(e) => {
@@ -86,13 +100,13 @@ async fn cache_file(file_url: &str) -> Result<String, Box<dyn std::error::Error>
         .decode_utf8()
         .unwrap_or_else(|_| file_url.into())
         .into_owned();
-    let file_url = decoded.as_str();
+    let decoded_file_url = decoded.as_str();
     println!("Caching file...");
-    let is_remote = is_remote_url(file_url);
+    let is_remote = is_remote_url(decoded_file_url);
     let path = if is_remote {
         // 执行下载
-        println!("Downloading remote file: {}", file_url);
-        let saved = download_file_to_tmp(file_url).await?;
+        println!("Downloading remote file: {}", decoded_file_url);
+        let saved = download_file_to_tmp(decoded_file_url).await?;
         // 验证文件的 mime 类型为合法的 office 文件类型
         if !validate_file(&saved) {
             let err = UnsupportedFileTypeError {
@@ -102,7 +116,7 @@ async fn cache_file(file_url: &str) -> Result<String, Box<dyn std::error::Error>
         }
         saved
     } else {
-        file_url.to_string()
+        decoded_file_url.to_string()
     };
     Ok(path)
 }
@@ -287,5 +301,9 @@ mod tests {
         let result = convert_file_to_pdf(input_file).await;
         assert!(result.is_ok());
         println!("转换后的文件路径: {:?}", result.unwrap());
+    }
+
+    async fn test_reqwest() {
+        let url = "";
     }
 }
