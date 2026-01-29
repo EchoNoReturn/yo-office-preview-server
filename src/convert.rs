@@ -1,5 +1,18 @@
-use std::{env, io::Write, process::Command};
+use std::{env, fmt::Debug, io::Write, process::Command};
 use tempfile::NamedTempFile;
+
+#[derive(Debug)]
+struct UnsupportedFileTypeError {
+    cache_path: String,
+}
+
+impl std::fmt::Display for UnsupportedFileTypeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unsupported file type")
+    }
+}
+
+impl std::error::Error for UnsupportedFileTypeError {}
 
 /**
  * 转换文件
@@ -7,9 +20,30 @@ use tempfile::NamedTempFile;
  */
 pub async fn convert_file_to_pdf(input_url: &str) -> Result<String, Box<dyn std::error::Error>> {
     let libreoffice = env::var("LIBREOFFICE_PATH").expect("请在 .env 中配置 LIBREOFFICE_PATH");
-    let input_file = cache_file(input_url).await?;
     let output_dir =
         env::var("OUTPUT_DIR").unwrap_or(env::temp_dir().to_str().unwrap().to_string());
+    let input_file = match cache_file(input_url).await {
+        Ok(path) => path,
+        Err(e) => {
+            // 这里报错只有两种可能：下载失败，或者文件类型不支持
+            // 如果是 UnsupportedFileTypeError，则不进行转换，直接返回下载的文件
+            if let Some(err) = e.downcast_ref::<UnsupportedFileTypeError>() {
+                // 移动文件到输出目录
+                let file_name = std::path::Path::new(&err.cache_path)
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap();
+                let dest_path = format!("{}/{}", output_dir, file_name);
+                std::fs::copy(&err.cache_path, &dest_path)?;
+                // 移除临时缓存的文件
+                let _ = std::fs::remove_file(&err.cache_path);
+                return Ok(dest_path);
+            } else {
+                return Err(e);
+            }
+        }
+    };
 
     let status = Command::new(libreoffice)
         .args([
@@ -52,8 +86,10 @@ async fn cache_file(file_url: &str) -> Result<String, Box<dyn std::error::Error>
         let saved = download_file_to_tmp(file_url).await?;
         // 验证文件的 mime 类型为合法的 office 文件类型
         if !validate_file(&saved) {
-            let _ = std::fs::remove_file(&saved);
-            return Err("不支持的文件类型".into());
+            let err = UnsupportedFileTypeError {
+                cache_path: saved.clone(),
+            };
+            return Err(Box::new(err));
         }
         saved
     } else {
@@ -88,6 +124,12 @@ fn is_office_file(filename: &str) -> bool {
 async fn download_file_to_tmp(url: &str) -> Result<String, Box<dyn std::error::Error>> {
     // 从请求通中获取文件名和后缀，更新后缀
     let response = reqwest::get(url).await?;
+
+    let success = response.status().is_success();
+    if !success {
+        return Err(format!("Failed to download file: HTTP {}", response.status()).into());
+    }
+
     let header = response.headers();
 
     // Determine file extension: prefer extension from URL, then Content-Disposition/Content-Type headers.
@@ -97,6 +139,12 @@ async fn download_file_to_tmp(url: &str) -> Result<String, Box<dyn std::error::E
         .map(|s| s.to_string())
         .or_else(|| get_ext_from_header(header))
         .unwrap_or_else(|| "tmp".to_string());
+
+    let ext = if ext.len() > 10 {
+        get_ext_from_header(header).unwrap_or_else(|| "tmp".to_string())
+    } else {
+        ext
+    };
 
     println!("Determined file extension: {}", ext);
 
@@ -118,17 +166,34 @@ async fn download_file_to_tmp(url: &str) -> Result<String, Box<dyn std::error::E
     Ok(new_temp_path)
 }
 
+fn header_value_lossy(v: &reqwest::header::HeaderValue) -> &str {
+    // 注意：返回 &'static str 不安全，这里演示用 Cow
+    Box::leak(
+        String::from_utf8_lossy(v.as_bytes())
+            .into_owned()
+            .into_boxed_str(),
+    )
+}
+
+fn validate_content_disposition(header: &reqwest::header::HeaderMap) -> Option<&str> {
+    if let Some(content_disposition) = header.get(reqwest::header::CONTENT_DISPOSITION) {
+        if content_disposition.is_empty() {
+            return None;
+        }
+        return Some(header_value_lossy(content_disposition));
+    }
+    None
+}
+
 /**
  * 从 HTTP 头信息中获取文件后缀
  */
 fn get_ext_from_header(header: &reqwest::header::HeaderMap) -> Option<String> {
     // 1. 从 Content-disposition 中获取
-    if let Some(content_disposition) = header.get(reqwest::header::CONTENT_DISPOSITION) {
-        let result = content_disposition_to_ext(content_disposition.to_str().ok()?);
-        if result.is_some() {
-            return result;
-        }
+    if let Some(content_disposition) = validate_content_disposition(header) {
+        return content_disposition_to_ext(content_disposition);
     }
+
     // 2. 从 Content-type 中获取
     let content_type = header.get(reqwest::header::CONTENT_TYPE)?;
     let content_type_str = content_type.to_str().ok()?;
@@ -139,8 +204,15 @@ fn content_disposition_to_ext(content_disposition: &str) -> Option<String> {
     let parts: Vec<&str> = content_disposition.split(';').collect();
     for part in parts {
         let part = part.trim();
-        if part.starts_with("filename=") {
-            let filename = part.trim_start_matches("filename=").trim_matches('"');
+        let match_str = if part.starts_with("filename=") {
+            "filename="
+        } else if part.starts_with("filename*=") {
+            "filename*="
+        } else {
+            ""
+        };
+        if match_str.len() > 0 {
+            let filename = part.trim_start_matches(match_str).trim_matches('"');
             let ext = std::path::Path::new(filename)
                 .extension()
                 .and_then(std::ffi::OsStr::to_str)?;
@@ -164,6 +236,7 @@ fn content_type_to_ext(content_type: &str) -> Option<String> {
         "application/vnd.openxmlformats-officedocument.presentationml.presentation" => {
             Some("pptx".to_string())
         }
+        "application/pdf" => Some("pdf".to_string()),
         _ => None,
     }
 }
