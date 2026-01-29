@@ -1,3 +1,5 @@
+use crate::url_helper::is_remote_url;
+use percent_encoding::percent_decode_str;
 use std::{env, fmt::Debug, io::Write, process::Command};
 use tempfile::NamedTempFile;
 
@@ -45,6 +47,8 @@ pub async fn convert_file_to_pdf(input_url: &str) -> Result<String, Box<dyn std:
         }
     };
 
+    dbg!("输入文件路径: {}", &input_file);
+
     let status = Command::new(libreoffice)
         .args([
             "--headless",
@@ -78,8 +82,13 @@ pub async fn convert_file_to_pdf(input_url: &str) -> Result<String, Box<dyn std:
 
 async fn cache_file(file_url: &str) -> Result<String, Box<dyn std::error::Error>> {
     // Cache remote files to /tmp with their filename
+    let decoded = percent_decode_str(&file_url)
+        .decode_utf8()
+        .unwrap_or_else(|_| file_url.into())
+        .into_owned();
+    let file_url = decoded.as_str();
     println!("Caching file...");
-    let is_remote = crate::url_helper::is_remote_url(file_url);
+    let is_remote = is_remote_url(file_url);
     let path = if is_remote {
         // 执行下载
         println!("Downloading remote file: {}", file_url);
