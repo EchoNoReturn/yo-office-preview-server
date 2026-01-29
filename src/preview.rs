@@ -75,7 +75,13 @@ async fn handle_preview(url: &str) -> Result<(Vec<u8>, String), Box<dyn Error>> 
         let mime_type = get_mime_type(&pdf_path);
 
         // 3. 设置缓存
+        let cache_pdf_path = pdf_path.clone();
         set_cache(url.to_string(), pdf_path).await;
+
+        // 4. 配置一个小时后删除缓存文件（可选）
+        if should_auto_cleanup() {
+            cleanup_cached_file(&cache_pdf_path, 3600);
+        }
         Ok((pdf_bytes, mime_type))
     }
 }
@@ -86,4 +92,24 @@ fn get_mime_type(file_path: &str) -> String {
         .first_raw()
         .unwrap_or("application/octet-stream")
         .to_string()
+}
+
+/// 根据环境变量设置启动，自动清理缓存文件（可选）
+fn should_auto_cleanup() -> bool {
+    let enabled = env::var("AUTO_CLEANUP")
+        .unwrap_or_else(|_| "false".to_string())
+        .to_lowercase();
+    matches!(enabled.as_str(), "true" | "1" | "yes")
+}
+
+fn cleanup_cached_file(file_path: &str, secs: u64) {
+    let file_path = file_path.to_string();
+    // 使用 tokio 进行延时处理
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+        println!("Will cleaned up cached file: {}", file_path);
+        let _ = fs::remove_file(file_path).unwrap_or_else(|e| {
+            eprintln!("Failed to delete cached file: {:?}", e);
+        });
+    });
 }
