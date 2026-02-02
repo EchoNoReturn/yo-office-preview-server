@@ -61,13 +61,15 @@ pub async fn convert_file_to_pdf(input_url: &str) -> Result<String, Box<dyn std:
         }
     };
 
-    dbg!("输入文件路径: {}", &input_file);
+    println!("输入文件路径: {}", &input_file);
+
+    let strategy = choose_conversion_strategy(&input_file);
 
     let status = Command::new(libreoffice)
         .args([
             "--headless",
             "--convert-to",
-            "pdf",
+            strategy,
             input_file.as_str(),
             "--outdir",
             output_dir.as_str(),
@@ -81,7 +83,7 @@ pub async fn convert_file_to_pdf(input_url: &str) -> Result<String, Box<dyn std:
             .unwrap()
             .to_str()
             .unwrap();
-        let tmp_output_path = format!("{}/{}.pdf", output_dir, pre_file_name,);
+        let tmp_output_path = format!("{}/{}.{}", output_dir, pre_file_name, strategy);
         println!("输出文件路径: {}", tmp_output_path);
         // 删除缓存文件
         if crate::url_helper::is_remote_url(&input_url) {
@@ -139,6 +141,24 @@ fn is_office_file(filename: &str) -> bool {
         || ext.ends_with(".xlsx")
         || ext.ends_with(".ppt")
         || ext.ends_with(".pptx")
+}
+
+fn is_excel_file(filename: &str) -> bool {
+    let ext = filename.to_lowercase();
+    ext.ends_with(".xls") || ext.ends_with(".xlsx")
+}
+
+/**
+ * 选择文件转换策略
+ * 如果是 excel 将会转换成 html 进行渲染
+ * 其他文件则转换成 pdf 进行渲染
+ */
+pub fn choose_conversion_strategy(filename: &str) -> &'static str {
+    if is_excel_file(filename) {
+        "html"
+    } else {
+        "pdf"
+    }
 }
 
 /**
@@ -301,9 +321,5 @@ mod tests {
         let result = convert_file_to_pdf(input_file).await;
         assert!(result.is_ok());
         println!("转换后的文件路径: {:?}", result.unwrap());
-    }
-
-    async fn test_reqwest() {
-        let url = "";
     }
 }
